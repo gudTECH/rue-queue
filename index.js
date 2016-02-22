@@ -4,24 +4,23 @@
 class RueQueue {
   constructor(params) {
     if (typeof params.maxsize !== 'number' || params.maxsize < 1) {
-      throw "must set maxsize";
+      throw new Error("must set maxsize");
     } else if (typeof params.callback !== 'function') {
-      throw "must set callback function";
-    } else if (typeof params.name !== 'string' || params.name.length === 0) {
-      throw "must provide name";
+      throw new Error("must set callback function");
     }
 
-    this.name = params.name;
     this._queue = [];
     this.maxsize = params.maxsize;
     this.callback = params.callback;
+    this.concurrency = params.concurrency || 10;
+    this.inflight = 0;
+    this.cooldown = false;
     this.retryWait = params.retryWait || 5000;
     this._drainRetryTimer = null;
   }
 
   push(val, drain) {
-    if (this._queue.length+1 > this.maxsize) {
-
+    if (this._queue.length + 1 > this.maxsize) {
       var maybe_regret = this._queue.pop(); // end of the array is the oldest data
       if (typeof maybe_regret._regrets !== 'undefined') {
         this._queue.pop(); // get rid of the oldest data
@@ -30,7 +29,6 @@ class RueQueue {
       } else {
         this._queue.push({_regrets: 1});
       }
-
     }
 
     this._queue.unshift(val);
@@ -41,26 +39,36 @@ class RueQueue {
   }
 
   _drain() {
-    if (this._queue.length === 0) {
-      return; // We stop trying to process messages until more are enqueued
-    }
-
-    let entry = this._queue[this._queue.length-1]; // peek
-    this.callback(entry, {
-      success: () => {
-        this._queue.pop();
-        this._drain();
-      },
-
-      error: () => {
-        this.resetDrainRetryTimer();
-      },
+    process.nextTick(() => {
+      while (this._queue.length > 0 && this.inflight < this.concurrency && !this.cooldown) {
+        this._send();
+      }
     });
   }
 
-  resetDrainRetryTimer() {
-    clearTimeout(this._drainRetryTimer);
-    this._drainRetryTimer = setTimeout(() => this._drain(), this.retryWait);
+  _send() {
+    let entry = this._queue.pop();
+    let done = false;
+    let ack = (succeeded) => {
+      if (done) return;
+      done = true;
+      this.inflight -= 1;
+      this._drain();
+      if (!succeeded) {
+        this._queue.push(entry);
+        this.cooldown = true;
+        clearTimeout(this._drainRetryTimer);
+        this._drainRetryTimer = setTimeout(() => {
+          this.cooldown = false;
+          this._drain();
+        }, this.retryWait);
+      }
+    };
+    this.inflight += 1;
+    this.callback(entry, {
+      success: () => ack(true),
+      error: () => ack(false),
+    });
   }
 }
 
