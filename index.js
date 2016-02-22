@@ -2,7 +2,6 @@
 "use strict";
 
 var util = require('util');
-var EventEmitter = require('events');
 
 var RueQueue = function (params) {
   if (typeof params.maxsize !== 'number' || params.maxsize < 1) {
@@ -13,9 +12,6 @@ var RueQueue = function (params) {
     throw "must provide name";
   }
 
-  EventEmitter.call(this);
-  this.setMaxListeners(1);
-
   console.log("creating RueQueue", params.name);
 
   this.name = params.name;
@@ -24,6 +20,8 @@ var RueQueue = function (params) {
   this.callback = params.callback;
   this.retryWait = params.retryWait || 5000;
   this.verbose = params.verbose || false;
+  var me = this;
+  this._drainRetryTimer = null;
 
   this.log = function() {
     var args = [];
@@ -52,7 +50,7 @@ var RueQueue = function (params) {
 
     // if they don't specify anything assume 'drain'
     if (typeof doDrain === 'undefined') {
-      this.emit('drain');
+      this._drain();
     }
   };
 
@@ -60,25 +58,16 @@ var RueQueue = function (params) {
     this.push(val,false);
   }
 
-  this.on('error', function() {
-    this.resetDrainRetryTimer();
-  });
-
-  this.on('success', function() {
-    this._queue.pop();
-    this.emit('drain');
-  });
-
-  var me = this;
   this.success = function(){
-    me.emit('success');
+    this._queue.pop();
+    this._drain();
   };
 
   this.error = function(){
-    me.emit('error');
+    this.resetDrainRetryTimer();
   };
 
-  this.on('drain', function(){
+  this._drain = function(){
     if (this._queue.length === 0) {
       return; // We stop trying to process messages until more are enqueued
     }
@@ -90,22 +79,18 @@ var RueQueue = function (params) {
       this.log("RueQueue(", this.name, ") callback died with: ", e);
       this.resetDrainRetryTimer();
     }
-  });
+  };
 
-  this._drainRetryTimer = null;
   this.resetDrainRetryTimer = function() {
     clearTimeout(this._drainRetryTimer);
 
     var me = this;
     this._drainRetryTimer = setTimeout(function() {
       // me.log("resetDrainRetryTimer calling 'drain'");
-      me.emit('drain');
+      me._drain();
     }, this.retryWait);
   };
-
 };
-
-util.inherits(RueQueue, EventEmitter);
 
 module.exports = function(params) {
   return new RueQueue(params);
