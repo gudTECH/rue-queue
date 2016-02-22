@@ -1,38 +1,32 @@
 /*jslint node: true */
 "use strict";
 
-var util = require('util');
+class RueQueue {
+  constructor(params) {
+    if (typeof params.maxsize !== 'number' || params.maxsize < 1) {
+      throw "must set maxsize";
+    } else if (typeof params.callback !== 'function') {
+      throw "must set callback function";
+    } else if (typeof params.name !== 'string' || params.name.length === 0) {
+      throw "must provide name";
+    }
 
-var RueQueue = function (params) {
-  if (typeof params.maxsize !== 'number' || params.maxsize < 1) {
-    throw "must set maxsize";
-  } else if (typeof params.callback !== 'function') {
-    throw "must set callback function";
-  } else if (typeof params.name !== 'string' || params.name.length === 0) {
-    throw "must provide name";
+    console.log("creating RueQueue", params.name);
+
+    this.name = params.name;
+    this._queue = [];
+    this.maxsize = params.maxsize;
+    this.callback = params.callback;
+    this.retryWait = params.retryWait || 5000;
+    this.verbose = params.verbose || false;
+    this._drainRetryTimer = null;
   }
 
-  console.log("creating RueQueue", params.name);
-
-  this.name = params.name;
-  this._queue = [];
-  this.maxsize = params.maxsize;
-  this.callback = params.callback;
-  this.retryWait = params.retryWait || 5000;
-  this.verbose = params.verbose || false;
-  var me = this;
-  this._drainRetryTimer = null;
-
-  this.log = function() {
-    var args = [];
-    for(var i=0; i<arguments.length; i++){
-      args.push(arguments[i]);
-    }
-    args.unshift("RueQueue(" + this.name + ")");
-    console.log.apply(null, args);
+  log() {
+    console.log(`RueQueue(${this.name})`, ...arguments);
   };
 
-  this.push = function (val,doDrain) {
+  push(val,doDrain) {
     if (this._queue.length+1 > this.maxsize) {
 
       var maybe_regret = this._queue.pop(); // end of the array is the oldest data
@@ -52,22 +46,22 @@ var RueQueue = function (params) {
     if (typeof doDrain === 'undefined') {
       this._drain();
     }
-  };
+  }
 
-  this.pushNoDrain = function(val) {
+  pushNoDrain(val) {
     this.push(val,false);
   }
 
-  this.success = function(){
+  success() {
     this._queue.pop();
     this._drain();
-  };
+  }
 
-  this.error = function(){
+  error() {
     this.resetDrainRetryTimer();
-  };
+  }
 
-  this._drain = function(){
+  _drain() {
     if (this._queue.length === 0) {
       return; // We stop trying to process messages until more are enqueued
     }
@@ -76,21 +70,16 @@ var RueQueue = function (params) {
     try {
       this.callback(entry,this);
     } catch(e) {
-      this.log("RueQueue(", this.name, ") callback died with: ", e);
+      this.log(`callback died with: ${e}`);
       this.resetDrainRetryTimer();
     }
-  };
+  }
 
-  this.resetDrainRetryTimer = function() {
+  resetDrainRetryTimer() {
     clearTimeout(this._drainRetryTimer);
-
-    var me = this;
-    this._drainRetryTimer = setTimeout(function() {
-      // me.log("resetDrainRetryTimer calling 'drain'");
-      me._drain();
-    }, this.retryWait);
-  };
-};
+    this._drainRetryTimer = setTimeout(() => this._drain(), this.retryWait);
+  }
+}
 
 module.exports = function(params) {
   return new RueQueue(params);
