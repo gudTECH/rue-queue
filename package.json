@@ -1,6 +1,6 @@
 {
   "name": "rue-queue",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "A circular queue which regrets throwing away stale data",
   "main": "index.js",
   "scripts": {
